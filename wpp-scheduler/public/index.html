@@ -16,14 +16,15 @@
 			header { background: linear-gradient(90deg, var(--brand-dark), var(--brand)); color: #fff; padding: 1rem 1.25rem; }
 			header h1 { font-size: 1.15rem; }
 			header p { font-size: .82rem; opacity: .85; }
-			.wrap { max-width: 860px; margin: 0 auto; padding: 1.25rem 1rem 3rem; }
+			.wrap { max-width: 980px; margin: 0 auto; padding: 1.25rem 1rem 3rem; }
 			.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 1.25rem; margin-bottom: 1rem; box-shadow: var(--shadow); }
 			.card h2 { font-size: 1rem; margin-bottom: .8rem; }
 			label { display: block; font-size: .78rem; color: var(--muted); margin-bottom: .25rem; font-weight: 500; }
+			label b { color: var(--ink); }
 			input, select, textarea { width: 100%; padding: .6rem .7rem; border: 1px solid var(--line); border-radius: 10px; font: inherit; background: #fff; color: var(--ink); }
 			input:focus, select:focus, textarea:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px rgba(18,140,126,.15); }
 			.field { margin-bottom: .8rem; }
-			.grid { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; }
+			.grid { display: grid; grid-template-columns: 1fr 340px; gap: 1rem; align-items: start; }
 			button.btn { background: var(--brand); color: #fff; border: none; padding: .62rem 1.15rem; border-radius: 10px; font: inherit; font-weight: 600; cursor: pointer; }
 			button.btn:hover { background: var(--brand-dark); }
 			button.btn.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); font-weight: 500; }
@@ -46,7 +47,19 @@
 			.toast { position: fixed; bottom: 1rem; left: 50%; transform: translateX(-50%); background: #0f1f28; color: #fff; padding: .6rem 1rem; border-radius: 8px; font-size: .85rem; opacity: 0; transition: opacity .2s; }
 			.toast.show { opacity: 1; }
 			.warn-box { background: #fdf3dd; border: 1px solid #f0d99a; color: #8a5e0a; border-radius: 10px; padding: .6rem .8rem; font-size: .82rem; margin-bottom: 1rem; }
-			@media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+			/* Zona de colar imagem */
+			.paste-zone { border: 2px dashed var(--line); border-radius: 10px; min-height: 90px; display: flex; align-items: center; justify-content: center; cursor: pointer; background: #fafbfc; text-align: center; padding: .6rem; transition: border-color .15s, background .15s; }
+			.paste-zone:hover, .paste-zone:focus { border-color: var(--brand); background: #f0fbf8; outline: none; }
+			.paste-zone.has-img { border-style: solid; }
+			.pz-hint { color: var(--muted); font-size: .85rem; }
+			#paste-preview { max-height: 140px; max-width: 100%; border-radius: 8px; }
+			/* Prévia WhatsApp */
+			.wa-wall { background: #e5ddd5; background-image: radial-gradient(rgba(0,0,0,.04) 1px, transparent 1px); background-size: 16px 16px; border-radius: 12px; padding: 1rem .8rem; min-height: 120px; }
+			.wa-bubble { background: #d9fdd3; border-radius: 10px; padding: .5rem .6rem; box-shadow: 0 1px 1px rgba(0,0,0,.12); font-size: .9rem; color: #111b21; white-space: pre-wrap; word-break: break-word; position: relative; }
+			.wa-bubble del { color: #667781; }
+			.prev-img { width: 100%; border-radius: 8px; margin-bottom: .4rem; display: block; }
+			.prev-time { display: block; text-align: right; font-size: .63rem; color: #667781; margin-top: .25rem; }
+			@media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
 		</style>
 	</head>
 	<body>
@@ -68,16 +81,38 @@
 					<label>Grupo de destino</label>
 					<select id="group"><option value="">Conecte o WhatsApp para carregar os grupos</option></select>
 				</div>
-				<div class="field">
-					<label>Mensagem (a oferta pronta — aceita *negrito* do WhatsApp)</label>
-					<textarea id="text" rows="6" placeholder="Cole aqui a oferta pronta para o grupo…"></textarea>
-				</div>
 				<div class="grid">
-					<div class="field"><label>Imagem (URL, opcional)</label><input id="imageUrl" placeholder="https://…/foto.jpg" /></div>
-					<div class="field"><label>Data e hora do disparo</label><input id="scheduledAt" type="datetime-local" /></div>
+					<div>
+						<div class="field">
+							<label>Mensagem (aceita <b>*negrito*</b>, <b>~riscado~</b>, <b>_itálico_</b> do WhatsApp)</label>
+							<textarea id="text" rows="8" placeholder="Cole aqui a oferta pronta para o grupo…"></textarea>
+						</div>
+						<div class="field">
+							<label>Imagem — cole com <b>Ctrl+V</b> ou clique para escolher</label>
+							<div id="paste-zone" class="paste-zone" tabindex="0">
+								<span class="pz-hint" id="pz-hint">📋 Cole a imagem aqui (Ctrl+V) ou clique</span>
+								<img id="paste-preview" alt="" hidden />
+							</div>
+							<input id="file-input" type="file" accept="image/*" hidden />
+							<div class="hint">Prioridade: o app usa a <b>imagem do link do produto</b>. A colada é reserva, caso o link não tenha thumb.</div>
+							<button type="button" class="btn ghost small" id="btn-clear-img" hidden style="margin-top:.4rem">Remover imagem colada</button>
+						</div>
+						<div class="field"><label>Data e hora do disparo</label><input id="scheduledAt" type="datetime-local" /></div>
+						<div class="actions"><button type="button" class="btn" id="btn-schedule">📅 Agendar disparo</button></div>
+						<div class="hint" id="sched-msg"></div>
+					</div>
+					<div class="field">
+						<label>Prévia (como vai chegar no grupo)</label>
+						<div class="wa-wall">
+							<div class="wa-bubble">
+								<img id="prev-img" class="prev-img" alt="" hidden />
+								<div id="prev-text" class="prev-text"></div>
+								<span class="prev-time" id="prev-time"></span>
+							</div>
+						</div>
+						<div class="hint" id="prev-src" style="margin-top:.4rem"></div>
+					</div>
 				</div>
-				<div class="actions"><button type="button" class="btn" id="btn-schedule">📅 Agendar disparo</button></div>
-				<div class="hint" id="sched-msg"></div>
 			</div>
 
 			<div class="card">

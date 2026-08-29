@@ -2,9 +2,15 @@
 const $ = (id) => document.getElementById(id);
 let connected = false;
 let groupsLoaded = false;
+let pastedImage = null; // data URL da imagem colada (reserva)
+let thumbTimer = null;
+let lastThumb = null; // thumb do link do produto (prioridade)
 
 function toast(m) { const t = $("toast"); t.textContent = m; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 2200); }
 function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function waFormat(t) { let h = esc(t); h = h.replace(/\*([^*\n]+)\*/g, "<strong>$1</strong>"); h = h.replace(/~([^~\n]+)~/g, "<del>$1</del>"); h = h.replace(/(^|[\s(])_([^_\n]+)_/g, "$1<em>$2</em>"); return h; }
+function nowTime() { return new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }); }
+function firstUrl(t) { const m = (t || "").match(/https?:\/\/[^\s]+/); return m ? m[0].replace(/[)\].,]+$/, "") : null; }
 async function api(path, opts) {
 	const res = await fetch(path, { headers: { "content-type": "application/json" }, ...opts });
 	const data = await res.json().catch(() => ({}));
@@ -33,7 +39,6 @@ async function loadStatus() {
 		$("status").innerHTML = `<span class="hint">${esc(e.message)}</span>`;
 	}
 }
-
 async function loadGroups() {
 	try {
 		const { groups } = await api("/api/groups");
@@ -41,9 +46,61 @@ async function loadGroups() {
 		if (!groups.length) { sel.innerHTML = '<option value="">Nenhum grupo encontrado</option>'; return; }
 		sel.innerHTML = groups.map((g) => `<option value="${esc(g.jid)}" data-name="${esc(g.name)}">${esc(g.name)}</option>`).join("");
 		groupsLoaded = true;
-	} catch (e) {
-		toast(e.message);
+	} catch (e) { toast(e.message); }
+}
+
+// ---- Imagem colada (Ctrl+V / clique / arquivo) ----
+const zone = $("paste-zone");
+zone.addEventListener("click", () => $("file-input").click());
+$("file-input").addEventListener("change", (e) => { const f = e.target.files[0]; if (f) readImage(f); });
+zone.addEventListener("paste", (e) => handlePaste(e));
+document.addEventListener("paste", (e) => { if (document.activeElement === $("text") || document.activeElement === zone) handlePaste(e); });
+zone.addEventListener("dragover", (e) => { e.preventDefault(); });
+zone.addEventListener("drop", (e) => { e.preventDefault(); const f = [...e.dataTransfer.files].find((x) => x.type.startsWith("image/")); if (f) readImage(f); });
+$("btn-clear-img").addEventListener("click", () => setPastedImage(null));
+
+function handlePaste(e) {
+	const items = e.clipboardData?.items || [];
+	for (const it of items) {
+		if (it.type.startsWith("image/")) { const f = it.getAsFile(); if (f) { readImage(f); e.preventDefault(); return; } }
 	}
+}
+function readImage(file) {
+	const r = new FileReader();
+	r.onload = () => setPastedImage(r.result);
+	r.readAsDataURL(file);
+}
+function setPastedImage(dataUrl) {
+	pastedImage = dataUrl;
+	const img = $("paste-preview"), hint = $("pz-hint"), clear = $("btn-clear-img");
+	if (dataUrl) { img.src = dataUrl; img.hidden = false; hint.hidden = true; zone.classList.add("has-img"); clear.hidden = false; }
+	else { img.hidden = true; img.src = ""; hint.hidden = false; zone.classList.remove("has-img"); clear.hidden = true; $("file-input").value = ""; }
+	updatePreview();
+}
+
+// ---- Prévia (texto + imagem, com prioridade da thumb do link) ----
+$("text").addEventListener("input", () => { updatePreview(); scheduleThumb(); });
+function updatePreview() {
+	const text = $("text").value;
+	$("prev-text").innerHTML = waFormat(text) || '<span class="hint">Sua mensagem aparece aqui…</span>';
+	$("prev-time").textContent = text ? nowTime() + " ✓✓" : "";
+	const img = $("prev-img");
+	if (lastThumb) { img.src = lastThumb; img.hidden = false; $("prev-src").textContent = "🖼️ Imagem: do link do produto (prioridade)"; }
+	else if (pastedImage) { img.src = pastedImage; img.hidden = false; $("prev-src").textContent = "🖼️ Imagem: colada (reserva)"; }
+	else { img.hidden = true; img.src = ""; $("prev-src").textContent = "Sem imagem — será enviado só o texto."; }
+}
+function scheduleThumb() {
+	clearTimeout(thumbTimer);
+	thumbTimer = setTimeout(fetchThumbForPreview, 700);
+}
+async function fetchThumbForPreview() {
+	const link = firstUrl($("text").value);
+	if (!link) { lastThumb = null; updatePreview(); return; }
+	try {
+		const { image } = await api(`/api/thumb?url=${encodeURIComponent(link)}`);
+		lastThumb = image || null;
+	} catch { lastThumb = null; }
+	updatePreview();
 }
 
 // ---- Agendar ----
@@ -55,14 +112,13 @@ $("btn-schedule").addEventListener("click", async () => {
 		const groupJid = sel.value;
 		const groupName = sel.selectedOptions[0]?.dataset.name || groupJid;
 		const text = $("text").value.trim();
-		const imageUrl = $("imageUrl").value.trim() || null;
 		const dt = $("scheduledAt").value;
 		if (!groupJid) throw new Error("Escolha o grupo.");
-		if (!text && !imageUrl) throw new Error("Escreva a mensagem.");
+		if (!text && !pastedImage) throw new Error("Escreva a mensagem ou cole uma imagem.");
 		if (!dt) throw new Error("Escolha a data e hora.");
 		const scheduledAt = new Date(dt).getTime();
-		await api("/api/messages", { method: "POST", body: JSON.stringify({ text, imageUrl, groupJid, groupName, scheduledAt }) });
-		$("text").value = ""; $("imageUrl").value = ""; $("scheduledAt").value = "";
+		await api("/api/messages", { method: "POST", body: JSON.stringify({ text, imageData: pastedImage, groupJid, groupName, scheduledAt }) });
+		$("text").value = ""; $("scheduledAt").value = ""; setPastedImage(null); lastThumb = null; updatePreview();
 		toast("Mensagem agendada! 📅");
 		loadList();
 	} catch (e) {
@@ -79,20 +135,19 @@ async function loadList() {
 		if (!messages.length) { box.innerHTML = '<div class="empty">📭 Nenhuma mensagem agendada.</div>'; return; }
 		box.innerHTML = "";
 		messages.forEach((m) => box.appendChild(renderMsg(m)));
-	} catch (e) {
-		box.innerHTML = `<p class="hint">${esc(e.message)}</p>`;
-	}
+	} catch (e) { box.innerHTML = `<p class="hint">${esc(e.message)}</p>`; }
 }
 function renderMsg(m) {
 	const div = document.createElement("div");
 	div.className = "item";
 	const when = new Date(m.scheduledAt).toLocaleString("pt-BR");
+	const hasImg = m.imageData || m.imageUrl || firstUrl(m.text);
 	div.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center">
 			<strong>${esc(m.groupName)}</strong>
 			<span class="pill ${m.status}">${statusLabel(m.status)}</span>
 		</div>
-		<div class="meta"><span>🕒 ${when}</span>${m.imageUrl ? "<span>🖼️ com imagem</span>" : ""}${m.error ? `<span style="color:var(--danger)">${esc(m.error)}</span>` : ""}</div>
-		<pre>${esc(m.text || "(somente imagem)")}</pre>`;
+		<div class="meta"><span>🕒 ${when}</span>${hasImg ? "<span>🖼️ com imagem</span>" : ""}${m.error ? `<span style="color:var(--danger)">${esc(m.error)}</span>` : ""}</div>
+		<pre>${waFormat(m.text || "(somente imagem)")}</pre>`;
 	const actions = document.createElement("div");
 	actions.className = "actions";
 	if (m.status === "pending" || m.status === "failed") actions.appendChild(mkBtn("Enviar agora", "ghost small", () => sendNow(m.id)));
@@ -100,7 +155,7 @@ function renderMsg(m) {
 	div.appendChild(actions);
 	return div;
 }
-function mkBtn(label, cls, fn) { const b = document.createElement("button"); b.className = "btn " + cls; b.textContent = label; b.onclick = fn; return b; }
+function mkBtn(l, c, fn) { const b = document.createElement("button"); b.className = "btn " + c; b.textContent = l; b.onclick = fn; return b; }
 function statusLabel(s) { return { pending: "Agendada", sent: "Enviada", failed: "Falhou", canceled: "Cancelada" }[s] || s; }
 async function sendNow(id) {
 	try { await api(`/api/messages/${id}/send-now`, { method: "POST" }); toast("Enviada!"); loadList(); }
@@ -113,6 +168,7 @@ async function remove(id) {
 }
 
 // ---- Loop ----
+updatePreview();
 loadStatus(); loadList();
 setInterval(loadStatus, 3000);
 setInterval(loadList, 10000);

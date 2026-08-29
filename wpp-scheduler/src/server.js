@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { store } from "./store.js";
 import { wa } from "./wa.js";
+import { fetchThumb, firstUrl } from "./thumb.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 8080;
@@ -20,7 +21,8 @@ const MIN_GAP = (Number(process.env.MIN_SEND_GAP_SECONDS) || 8) * 1000;
 const PASSWORD = process.env.DASHBOARD_PASSWORD || "";
 
 const app = express();
-app.use(express.json({ limit: "1mb" }));
+// Limite maior para aceitar imagens coladas (base64) no corpo do POST.
+app.use(express.json({ limit: "12mb" }));
 
 // Proteção opcional por senha (Basic Auth, usuário "admin").
 if (PASSWORD) {
@@ -49,19 +51,43 @@ app.get("/api/groups", async (_req, res) => {
 
 app.get("/api/messages", (_req, res) => res.json({ messages: store.list() }));
 
+// Prévia da imagem do link (og:image). Usado pelo painel para mostrar qual
+// imagem será enviada, e internamente na hora do disparo.
+app.get("/api/thumb", async (req, res) => {
+	const url = req.query.url;
+	if (!url) return res.status(400).json({ error: "Informe ?url=" });
+	res.json({ image: await fetchThumb(String(url)) });
+});
+
 app.post("/api/messages", (req, res) => {
 	try {
-		const { text, imageUrl, groupJid, groupName, scheduledAt } = req.body || {};
+		const { text, imageUrl, imageData, groupJid, groupName, scheduledAt } = req.body || {};
 		if (!groupJid) throw new Error("Escolha o grupo de destino.");
-		if (!text && !imageUrl) throw new Error("A mensagem não pode ser vazia.");
+		if (!text && !imageUrl && !imageData) throw new Error("A mensagem não pode ser vazia.");
 		const when = Number(scheduledAt);
 		if (!when || !isFinite(when)) throw new Error("Data/hora de agendamento inválida.");
-		const rec = store.add({ text, imageUrl, groupJid, groupName, scheduledAt: when });
+		const rec = store.add({ text, imageUrl, imageData, groupJid, groupName, scheduledAt: when });
 		res.status(201).json(rec);
 	} catch (e) {
 		res.status(400).json({ error: e.message });
 	}
 });
+
+/**
+ * Decide a imagem do envio: prioridade para a thumb do link do produto (dentro
+ * do texto); se não houver, usa a imagem colada; senão, envia só o texto.
+ */
+async function resolveSend(msg) {
+	const base = { groupJid: msg.groupJid, text: msg.text };
+	const link = firstUrl(msg.text) || msg.imageUrl;
+	if (link) {
+		const thumb = await fetchThumb(link);
+		if (thumb) return { ...base, imageUrl: thumb };
+	}
+	if (msg.imageData) return { ...base, imageData: msg.imageData };
+	if (msg.imageUrl) return { ...base, imageUrl: msg.imageUrl };
+	return base;
+}
 
 app.delete("/api/messages/:id", (req, res) => {
 	const ok = store.remove(req.params.id);
@@ -73,7 +99,7 @@ app.post("/api/messages/:id/send-now", async (req, res) => {
 	const msg = store.list().find((m) => m.id === req.params.id);
 	if (!msg) return res.status(404).json({ error: "Mensagem não encontrada." });
 	try {
-		await wa.send(msg);
+		await wa.send(await resolveSend(msg));
 		store.update(msg.id, { status: "sent", sentAt: Date.now(), error: null });
 		res.json({ ok: true });
 	} catch (e) {
@@ -97,7 +123,7 @@ async function tick() {
 	if (!due.length) return;
 	const msg = due[0]; // um por vez, com intervalo entre eles
 	try {
-		await wa.send(msg);
+		await wa.send(await resolveSend(msg));
 		store.update(msg.id, { status: "sent", sentAt: Date.now(), error: null });
 		lastSentAt = Date.now();
 		console.log(`📤 Enviada para ${msg.groupName}: ${(msg.text || "").slice(0, 40)}…`);

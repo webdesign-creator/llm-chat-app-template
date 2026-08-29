@@ -42,12 +42,14 @@ export const store = {
 	},
 
 	/** Cria uma mensagem agendada. */
-	add({ text, imageUrl, groupJid, groupName, scheduledAt }) {
+	add({ text, imageUrl, imageData, groupJid, groupName, scheduledAt }) {
 		const all = readAll();
 		const rec = {
 			id: uid(),
 			text: text || "",
 			imageUrl: imageUrl || null,
+			// Imagem colada (data URL base64) usada como reserva se o link não tiver thumb.
+			imageData: imageData || null,
 			groupJid,
 			groupName: groupName || groupJid,
 			scheduledAt,

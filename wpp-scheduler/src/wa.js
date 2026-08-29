@@ -96,13 +96,22 @@ class WhatsApp {
 			.sort((a, b) => a.name.localeCompare(b.name));
 	}
 
-	/** Envia uma mensagem (texto ou imagem+legenda) para um grupo. */
-	async send({ groupJid, text, imageUrl }) {
+	/**
+	 * Envia uma mensagem para um grupo. A imagem pode vir por URL (`imageUrl`,
+	 * ex.: thumb do link do produto) ou por dados colados (`imageData`, data URL
+	 * base64). O texto vira legenda quando há imagem. Sem imagem, envia só texto.
+	 * Os asteriscos do WhatsApp (*negrito*, ~riscado~, _itálico_) são preservados.
+	 */
+	async send({ groupJid, text, imageUrl, imageData }) {
 		if (!this.connected) throw new Error("WhatsApp não está conectado.");
+		const caption = text || "";
 		if (imageUrl) {
-			await this.sock.sendMessage(groupJid, { image: { url: imageUrl }, caption: text || "" });
+			await this.sock.sendMessage(groupJid, { image: { url: imageUrl }, caption });
+		} else if (imageData) {
+			const base64 = String(imageData).split(",").pop();
+			await this.sock.sendMessage(groupJid, { image: Buffer.from(base64, "base64"), caption });
 		} else {
-			await this.sock.sendMessage(groupJid, { text: text || "" });
+			await this.sock.sendMessage(groupJid, { text: caption });
 		}
 	}
 
