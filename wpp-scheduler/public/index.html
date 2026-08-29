@@ -59,6 +59,11 @@
 			.wa-bubble del { color: #667781; }
 			.prev-img { width: 100%; border-radius: 8px; margin-bottom: .4rem; display: block; }
 			.prev-time { display: block; text-align: right; font-size: .63rem; color: #667781; margin-top: .25rem; }
+			.tabs2 { display: flex; align-items: center; gap: .4rem; margin-bottom: .8rem; border-bottom: 1px solid var(--line); }
+			.tab2 { border: none; background: transparent; color: var(--muted); font: inherit; font-weight: 600; cursor: pointer; padding: .5rem .8rem; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+			.tab2.active { color: var(--brand-dark); border-bottom-color: var(--brand); }
+			.tab2 .count { font-size: .72rem; background: var(--line); color: var(--ink); border-radius: 999px; padding: 0 .4rem; margin-left: .3rem; }
+			.tab2.active .count { background: var(--brand-2); color: #fff; }
 			@media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
 		</style>
 	</head>
@@ -116,8 +121,12 @@
 			</div>
 
 			<div class="card">
-				<h2>3. Mensagens agendadas</h2>
-				<div class="actions" style="margin-bottom:.7rem"><button type="button" class="btn ghost small" id="btn-refresh">Atualizar</button></div>
+				<h2>3. Mensagens</h2>
+				<div class="tabs2">
+					<button type="button" class="tab2 active" data-tab="pending">📅 Agendadas <span class="count" id="cnt-pending">0</span></button>
+					<button type="button" class="tab2" data-tab="sent">✅ Enviadas <span class="count" id="cnt-sent">0</span></button>
+					<button type="button" class="btn ghost small" id="btn-refresh" style="margin-left:auto">Atualizar</button>
+				</div>
 				<div id="list"><p class="hint">Carregando…</p></div>
 			</div>
 		</div>

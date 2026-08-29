@@ -1,7 +1,9 @@
 // Painel do agendador de WhatsApp.
 const $ = (id) => document.getElementById(id);
+const DEFAULT_GROUP = "SELEÇÃO PARA O SEU LAR [#03]"; // grupo pré-selecionado
 let connected = false;
 let groupsLoaded = false;
+let listTab = "pending"; // aba ativa em Mensagens: pending | sent
 let pastedImage = null; // data URL da imagem colada (reserva)
 let thumbTimer = null;
 let lastThumb = null; // thumb do link do produto (prioridade)
@@ -45,6 +47,9 @@ async function loadGroups() {
 		const sel = $("group");
 		if (!groups.length) { sel.innerHTML = '<option value="">Nenhum grupo encontrado</option>'; return; }
 		sel.innerHTML = groups.map((g) => `<option value="${esc(g.jid)}" data-name="${esc(g.name)}">${esc(g.name)}</option>`).join("");
+		// Pré-seleciona o grupo padrão, se existir na conta.
+		const def = groups.find((g) => (g.name || "").trim() === DEFAULT_GROUP);
+		if (def) sel.value = def.jid;
 		groupsLoaded = true;
 	} catch (e) { toast(e.message); }
 }
@@ -126,27 +131,44 @@ $("btn-schedule").addEventListener("click", async () => {
 	}
 });
 
-// ---- Lista ----
+// ---- Lista (abas Agendadas / Enviadas) ----
 $("btn-refresh").addEventListener("click", loadList);
+document.querySelectorAll(".tab2[data-tab]").forEach((t) => t.addEventListener("click", () => {
+	listTab = t.dataset.tab;
+	document.querySelectorAll(".tab2[data-tab]").forEach((x) => x.classList.toggle("active", x === t));
+	loadList();
+}));
+const isSent = (m) => m.status === "sent";
 async function loadList() {
 	const box = $("list");
 	try {
 		const { messages } = await api("/api/messages");
-		if (!messages.length) { box.innerHTML = '<div class="empty">📭 Nenhuma mensagem agendada.</div>'; return; }
+		const sent = messages.filter(isSent);
+		const pending = messages.filter((m) => !isSent(m)); // agendadas + falhas
+		$("cnt-pending").textContent = pending.length;
+		$("cnt-sent").textContent = sent.length;
+		const rows = listTab === "sent" ? sent : pending;
+		if (!rows.length) {
+			box.innerHTML = `<div class="empty">${listTab === "sent" ? "✅ Nenhuma mensagem enviada ainda." : "📭 Nenhuma mensagem agendada."}</div>`;
+			return;
+		}
+		// Enviadas: mais recentes primeiro (pela hora de envio).
+		if (listTab === "sent") rows.sort((a, b) => (b.sentAt || 0) - (a.sentAt || 0));
 		box.innerHTML = "";
-		messages.forEach((m) => box.appendChild(renderMsg(m)));
+		rows.forEach((m) => box.appendChild(renderMsg(m)));
 	} catch (e) { box.innerHTML = `<p class="hint">${esc(e.message)}</p>`; }
 }
 function renderMsg(m) {
 	const div = document.createElement("div");
 	div.className = "item";
 	const when = new Date(m.scheduledAt).toLocaleString("pt-BR");
+	const sentWhen = m.sentAt ? new Date(m.sentAt).toLocaleString("pt-BR") : null;
 	const hasImg = m.imageData || m.imageUrl || firstUrl(m.text);
 	div.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center">
 			<strong>${esc(m.groupName)}</strong>
 			<span class="pill ${m.status}">${statusLabel(m.status)}</span>
 		</div>
-		<div class="meta"><span>🕒 ${when}</span>${hasImg ? "<span>🖼️ com imagem</span>" : ""}${m.error ? `<span style="color:var(--danger)">${esc(m.error)}</span>` : ""}</div>
+		<div class="meta">${sentWhen ? `<span>📤 Enviada: ${sentWhen}</span>` : `<span>🕒 ${when}</span>`}${hasImg ? "<span>🖼️ com imagem</span>" : ""}${m.error ? `<span style="color:var(--danger)">${esc(m.error)}</span>` : ""}</div>
 		<pre>${waFormat(m.text || "(somente imagem)")}</pre>`;
 	const actions = document.createElement("div");
 	actions.className = "actions";
